@@ -1,0 +1,354 @@
+{
+    "definition": {
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "actions": {
+            "Condition_-_compare_instance_count": {
+                "actions": {
+                    "HTTP_-_Scale": {
+                        "inputs": {
+                            "authentication": {
+                                "audience": "https://management.azure.com",
+                                "type": "ManagedServiceIdentity"
+                            },
+                            "body": {
+                                "id": "/subscriptions/@{body('Parse_JSON_-_EnvVar')?['SubscriptionID']}/resourceGroups/@{body('Parse_JSON_-_EnvVar')?['ResourceGroup']}/providers/Microsoft.Web/sites/@{body('Parse_JSON_-_EnvVar')?['LogicAppName']}/config/web",
+                                "name": "@{body('Parse_JSON_-_EnvVar')?['LogicAppName']}",
+                                "properties": {
+                                    "functionAppScaleLimit": 0,
+                                    "functionsRuntimeScaleMonitoringEnabled": true,
+                                    "minimumElasticInstanceCount": "@variables('TargetCount')"
+                                },
+                                "type": "Microsoft.Web/sites/config"
+                            },
+                            "method": "PATCH",
+                            "uri": "https://management.azure.com/subscriptions/@{body('Parse_JSON_-_EnvVar')?['SubscriptionID']}/resourceGroups/@{body('Parse_JSON_-_EnvVar')?['ResourceGroup']}/providers/Microsoft.Web/sites/@{body('Parse_JSON_-_EnvVar')?['LogicAppName']}/config/web?api-version=2022-03-01"
+                        },
+                        "runAfter": {},
+                        "runtimeConfiguration": {
+                            "contentTransfer": {
+                                "transferMode": "Chunked"
+                            }
+                        },
+                        "type": "Http"
+                    }
+                },
+                "else": {
+                    "actions": {
+                        "Terminate": {
+                            "inputs": {
+                                "runStatus": "Cancelled"
+                            },
+                            "runAfter": {},
+                            "type": "Terminate"
+                        }
+                    }
+                },
+                "expression": {
+                    "and": [
+                        {
+                            "not": {
+                                "equals": [
+                                    "@variables('TargetCount')",
+                                    "@body('Parse_JSON')?['properties']?['minimumElasticInstanceCount']"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                "runAfter": {
+                    "Condition_-_gt_40": [
+                        "Succeeded"
+                    ],
+                    "Condition_-_lt_10": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "If"
+            },
+            "Condition_-_gt_40": {
+                "actions": {
+                    "Set_variable_-_increase_instance_count": {
+                        "inputs": {
+                            "name": "TargetCount",
+                            "value": "@min(20, add(body('Parse_JSON')?['properties']?['minimumElasticInstanceCount'], 3))"
+                        },
+                        "runAfter": {},
+                        "type": "SetVariable"
+                    }
+                },
+                "expression": {
+                    "and": [
+                        {
+                            "greater": [
+                                "@outputs('Compose_-_Usage_Avg')",
+                                40
+                            ]
+                        }
+                    ]
+                },
+                "runAfter": {
+                    "Initialize_variable_-_target_instance_count": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "If"
+            },
+            "Condition_-_lt_10": {
+                "actions": {
+                    "Set_variable_-_decrease_instance_count": {
+                        "inputs": {
+                            "name": "TargetCount",
+                            "value": "@max(1, sub(body('Parse_JSON')?['properties']?['minimumElasticInstanceCount'], 1))"
+                        },
+                        "runAfter": {},
+                        "type": "SetVariable"
+                    }
+                },
+                "expression": {
+                    "and": [
+                        {
+                            "less": [
+                                "@outputs('Compose_-_Usage_Avg')",
+                                10
+                            ]
+                        }
+                    ]
+                },
+                "runAfter": {
+                    "Initialize_variable_-_target_instance_count": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "If"
+            },
+            "HTTP_-_Get_Current_Instance_Count": {
+                "inputs": {
+                    "authentication": {
+                        "audience": "https://management.azure.com",
+                        "type": "ManagedServiceIdentity"
+                    },
+                    "method": "GET",
+                    "uri": "https://management.azure.com/subscriptions/d1927659-4b82-4122-a55d-a9c8ce1467db/resourceGroups/LogicAppStandard/providers/Microsoft.Web/sites/DracLogicAppSTD/config/web?api-version=2022-03-01"
+                },
+                "runAfter": {
+                    "Scope_-_Check_CPU_usage": [
+                        "Succeeded"
+                    ]
+                },
+                "runtimeConfiguration": {
+                    "contentTransfer": {
+                        "transferMode": "Chunked"
+                    }
+                },
+                "type": "Http"
+            },
+            "Initialize_variable_-_EnvVariables": {
+                "inputs": {
+                    "variables": [
+                        {
+                            "name": "EnvVariables",
+                            "type": "string",
+                            "value": "{\n\"SubscriptionID\": \"\",\n\"ResourceGroup\": \"\",\n\"ASP\": \"\",\n\"LogicAppName\": \"\",\n\"StartTime\": \"@{formatDateTime(addMinutes(utcNow(), -2), 'yyyy-MM-ddTHH:mm:ssZ')}\",\n\"EndTime\": \"@{formatDateTime(utcNow(),'yyyy-MM-ddTHH:mm:ssZ')}\"\n}"
+                        }
+                    ]
+                },
+                "runAfter": {},
+                "type": "InitializeVariable"
+            },
+            "Initialize_variable_-_SumOfCPUUsage": {
+                "inputs": {
+                    "variables": [
+                        {
+                            "name": "UsageSum",
+                            "type": "float",
+                            "value": 0
+                        }
+                    ]
+                },
+                "runAfter": {
+                    "Initialize_variable_-_EnvVariables": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "InitializeVariable"
+            },
+            "Initialize_variable_-_target_instance_count": {
+                "inputs": {
+                    "variables": [
+                        {
+                            "name": "TargetCount",
+                            "type": "integer",
+                            "value": "@body('Parse_JSON')?['properties']?['minimumElasticInstanceCount']"
+                        }
+                    ]
+                },
+                "runAfter": {
+                    "Parse_JSON": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "InitializeVariable"
+            },
+            "Parse_JSON": {
+                "inputs": {
+                    "content": "@body('HTTP_-_Get_Current_Instance_Count')",
+                    "schema": {
+                        "properties": {
+                            "properties": {
+                                "properties": {
+                                    "minimumElasticInstanceCount": {
+                                        "type": "integer"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        },
+                        "type": "object"
+                    }
+                },
+                "runAfter": {
+                    "HTTP_-_Get_Current_Instance_Count": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "ParseJson"
+            },
+            "Scope_-_Check_CPU_usage": {
+                "actions": {
+                    "Compose_-_Usage_Avg": {
+                        "inputs": "@div(variables('UsageSum'), length(body('Parse_JSON_-_CPU_Usage')))",
+                        "runAfter": {
+                            "For_each": [
+                                "Succeeded",
+                                "Failed"
+                            ]
+                        },
+                        "type": "Compose"
+                    },
+                    "For_each": {
+                        "actions": {
+                            "Increment_variable": {
+                                "inputs": {
+                                    "name": "UsageSum",
+                                    "value": "@item()['average']"
+                                },
+                                "runAfter": {},
+                                "type": "IncrementVariable"
+                            }
+                        },
+                        "foreach": "@outputs('Parse_JSON_-_CPU_Usage')['body']",
+                        "runAfter": {
+                            "Parse_JSON_-_CPU_Usage": [
+                                "Succeeded"
+                            ]
+                        },
+                        "runtimeConfiguration": {
+                            "concurrency": {
+                                "repetitions": 1
+                            }
+                        },
+                        "type": "Foreach"
+                    },
+                    "HTTP": {
+                        "inputs": {
+                            "authentication": {
+                                "audience": "https://management.azure.com",
+                                "type": "ManagedServiceIdentity"
+                            },
+                            "method": "GET",
+                            "uri": "https://management.azure.com/subscriptions/@{body('Parse_JSON_-_EnvVar')?['SubscriptionID']}/resourceGroups/@{body('Parse_JSON_-_EnvVar')?['ResourceGroup']}/providers/Microsoft.Web/serverFarms/@{body('Parse_JSON_-_EnvVar')?['ASP']}/providers/microsoft.Insights/metrics?timespan=@{body('Parse_JSON_-_EnvVar')?['StartTime']}/@{body('Parse_JSON_-_EnvVar')?['EndTime']}&interval=PT1M&metricnames=CpuPercentage&aggregation=average&metricNamespace=microsoft.web%2Fserverfarms&autoadjusttimegrain=true&validatedimensions=false&api-version=2019-07-01"
+                        },
+                        "runAfter": {
+                            "Parse_JSON_-_EnvVar": [
+                                "Succeeded"
+                            ]
+                        },
+                        "runtimeConfiguration": {
+                            "contentTransfer": {
+                                "transferMode": "Chunked"
+                            }
+                        },
+                        "type": "Http"
+                    },
+                    "Parse_JSON_-_CPU_Usage": {
+                        "inputs": {
+                            "content": "@body('HTTP')?['value'][0]?['timeseries'][0]?['data']",
+                            "schema": {
+                                "items": {
+                                    "properties": {
+                                        "average": {
+                                            "type": "number"
+                                        },
+                                        "timeStamp": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "timeStamp"
+                                    ],
+                                    "type": "object"
+                                },
+                                "type": "array"
+                            }
+                        },
+                        "runAfter": {
+                            "HTTP": [
+                                "Succeeded"
+                            ]
+                        },
+                        "type": "ParseJson"
+                    },
+                    "Parse_JSON_-_EnvVar": {
+                        "inputs": {
+                            "content": "@variables('EnvVariables')",
+                            "schema": {
+                                "properties": {
+                                    "ASP": {
+                                        "type": "string"
+                                    },
+                                    "EndTime": {
+                                        "type": "string"
+                                    },
+                                    "LogicAppName": {
+                                        "type": "string"
+                                    },
+                                    "ResourceGroup": {
+                                        "type": "string"
+                                    },
+                                    "StartTime": {
+                                        "type": "string"
+                                    },
+                                    "SubscriptionID": {
+                                        "type": "string"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        },
+                        "runAfter": {},
+                        "type": "ParseJson"
+                    }
+                },
+                "runAfter": {
+                    "Initialize_variable_-_SumOfCPUUsage": [
+                        "Succeeded"
+                    ]
+                },
+                "type": "Scope"
+            }
+        },
+        "contentVersion": "1.0.0.0",
+        "outputs": {},
+        "parameters": {},
+        "triggers": {
+            "Recurrence": {
+                "recurrence": {
+                    "frequency": "Minute",
+                    "interval": 1
+                },
+                "type": "recurrence"
+            }
+        }
+    },
+    "parameters": {}
+}
